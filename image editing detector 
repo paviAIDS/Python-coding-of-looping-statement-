@@ -1,0 +1,232 @@
+# Install required libraries
+!pip install pillow piexif matplotlib
+
+pip install gradio
+
+import gradio as gr
+from PIL import Image
+
+# Dummy check function (replace with your analysis later)
+def check_images(original, edited):
+    if original is None or edited is None:
+        return "Please upload both images."
+    return "Comparison Done ✅ (Here you can show your detection result)"
+
+# Create Gradio interface
+app = gr.Interface(
+    fn=check_images,
+    inputs=[
+        gr.Image(type="filepath", label="Upload Original Image"),
+        gr.Image(type="filepath", label="Upload Edited Image")
+    ],
+    outputs="text",
+    title="MorphGuard – Image Morphing Detection",
+    description="Upload an Original and an Edited image. The system will analyze and decide which is likely original."
+)
+
+# Launch app
+app.launch(share=True)
+
+
+
+# Import libraries
+from PIL import Image, ImageChops, ImageEnhance
+import piexif
+import matplotlib.pyplot as plt
+
+
+
+
+from google.colab import files
+
+print("Upload Image A (Original candidate):")
+uploaded_a = files.upload()
+imgA_path = list(uploaded_a.keys())[0]
+
+print("Upload Image B (Edited candidate):")
+uploaded_b = files.upload()
+imgB_path = list(uploaded_b.keys())[0]
+
+imgA = Image.open(imgA_path)
+imgB = Image.open(imgB_path)
+
+# Display both
+plt.subplot(1,2,1)
+plt.imshow(imgA)
+plt.title("Image A")
+plt.axis("off")
+
+plt.subplot(1,2,2)
+plt.imshow(imgB)
+plt.title("Image B")
+plt.axis("off")
+
+plt.show()
+
+
+
+
+
+import io, os
+
+def get_metadata(image_path):
+    try:
+        exif_dict = piexif.load(image_path)
+        return exif_dict
+    except:
+        return None
+
+def ela_analysis(image_path, scale=10):
+    img = Image.open(image_path).convert('RGB')
+    # Save at 95% quality
+    temp_file = "temp.jpg"
+    img.save(temp_file, 'JPEG', quality=95)
+    resaved = Image.open(temp_file)
+
+    ela_image = ImageChops.difference(img, resaved)
+    extrema = ela_image.getextrema()
+    max_diff = max([ex[1] for ex in extrema])
+    scale = 255.0 / max_diff if max_diff != 0 else 1
+    ela_image = ImageEnhance.Brightness(ela_image).enhance(scale)
+    return ela_image
+
+# Metadata check
+metaA = get_metadata(imgA_path)
+metaB = get_metadata(imgB_path)
+
+print("Metadata Info:")
+print("Image A Metadata:", "Found" if metaA else "Not Found")
+print("Image B Metadata:", "Found" if metaB else "Not Found")
+
+# Run ELA
+elaA = ela_analysis(imgA_path)
+elaB = ela_analysis(imgB_path)
+
+plt.subplot(1,2,1)
+plt.imshow(elaA)
+plt.title("ELA Image A")
+plt.axis("off")
+
+plt.subplot(1,2,2)
+plt.imshow(elaB)
+plt.title("ELA Image B")
+plt.axis("off")
+
+plt.show()
+
+# Simple rule-based result
+if (metaA and not metaB):
+    print("Result: Image A looks more Original, Image B looks Edited")
+elif (metaB and not metaA):
+    print("Result: Image B looks more Original, Image A looks Edited")
+else:
+    print("Result: Based on ELA, check 
+
+
+
+
+    scoreA = 0
+    scoreB = 0
+
+    # Metadata check
+    if metaA: scoreA += 1
+    if metaB: scoreB += 1
+
+    # ELA brightness check
+    elaA_brightness = sum(elaA.getextrema()[0]) / 2
+    elaB_brightness = sum(elaB.getextrema()[0]) / 2
+
+    if elaA_brightness < elaB_brightness:
+        scoreA += 1
+    else:
+        scoreB += 1
+
+    # Final decision
+    if scoreA > scoreB:
+        return "Image A is likely ORIGINAL, Image B is likely EDITED"
+    elif scoreB > scoreA:
+        return "Image B is likely ORIGINAL, Image A is likely EDITED"
+    else:
+        return "Both images are similar – cannot decide confidently"
+
+# Print final result
+result = decide_original_edited(metaA, metaB, elaA, elaB)
+print("✅ Final Decision:", result)
+
+
+
+
+import gradio as gr
+from PIL import Image, ImageChops, ImageEnhance
+import piexif
+
+# Function for Metadata check
+def has_metadata(img_path):
+    try:
+        exif_dict = piexif.load(img_path)
+        return len(exif_dict.get("0th", {})) > 0
+    except Exception:
+        return False
+
+# Function for ELA
+def error_level_analysis(img_path, quality=90):
+    img = Image.open(img_path).convert("RGB")
+    temp_path = "temp.jpg"
+    img.save(temp_path, "JPEG", quality=quality)
+    compressed = Image.open(temp_path)
+
+    diff = ImageChops.difference(img, compressed)
+    extrema = diff.getextrema()
+    max_diff = max([ex[1] for ex in extrema])
+    scale = 255.0 / max_diff if max_diff != 0 else 1
+    diff = ImageEnhance.Brightness(diff).enhance(scale)
+
+    return diff
+
+# Main function for Gradio
+def detect_images(imageA, imageB):
+    metaA = has_metadata(imageA)
+    metaB = has_metadata(imageB)
+
+    elaA = error_level_analysis(imageA)
+    elaB = error_level_analysis(imageB)
+
+    # Simple scoring
+    scoreA = 1 if metaA else 0
+    scoreB = 1 if metaB else 0
+
+    elaA_brightness = sum(elaA.getextrema()[0]) / 2
+    elaB_brightness = sum(elaB.getextrema()[0]) / 2
+
+    if elaA_brightness < elaB_brightness:
+        scoreA += 1
+    else:
+        scoreB += 1
+
+    if scoreA > scoreB:
+        result = "✅ Image A is likely ORIGINAL\n❌ Image B is likely EDITED"
+    elif scoreB > scoreA:
+        result = "✅ Image B is likely ORIGINAL\n❌ Image A is likely EDITED"
+    else:
+        result = "🤔 Cannot decide confidently"
+
+    return elaA, elaB, result
+
+# Launch Gradio
+iface = gr.Interface(
+    fn=detect_images,
+    inputs=[gr.Image(type="filepath", label="Upload Image A"),
+            gr.Image(type="filepath", label="Upload Image B")],
+    outputs=[gr.Image(label="ELA of Image A"),
+             gr.Image(label="ELA of Image B"),
+             gr.Textbox(label="Final Decision")],
+    title="Edited Image Detector",
+    description="Upload an Original and an Edited image. The system will analyze metadata + ELA to decide which is more likely original."
+)
+app.launch(inline=True)
+
+
+
+
+
+
